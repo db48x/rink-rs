@@ -80,12 +80,14 @@ fn describe(token: &Token) -> String {
     }
 }
 
+// The underlying character iterator plus an optional future token to
+// produce.
 #[derive(Clone)]
-pub struct TokenIterator<'a>(Peekable<Chars<'a>>);
+pub struct TokenIterator<'a>(Peekable<Chars<'a>>, Option<Token>);
 
 impl<'a> TokenIterator<'a> {
     pub fn new(input: &'a str) -> TokenIterator<'a> {
-        TokenIterator(input.chars().peekable())
+        TokenIterator(input.chars().peekable(), None)
     }
 }
 
@@ -102,10 +104,36 @@ fn is_currency(ch: char) -> bool {
     }
 }
 
+fn is_superscript(ch: char) -> bool {
+    match ch {
+        '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹' => true,
+        _ => false,
+    }
+}
+
+fn digit_from_superscript(sup: char) -> Option<char> {
+    match sup {
+        '⁰' => Some('0'),
+        '¹' => Some('1'),
+        '²' => Some('2'),
+        '³' => Some('3'),
+        '⁴' => Some('4'),
+        '⁵' => Some('5'),
+        '⁶' => Some('6'),
+        '⁷' => Some('7'),
+        '⁸' => Some('8'),
+        '⁹' => Some('9'),
+        _ => None,
+    }
+}
+
 impl<'a> Iterator for TokenIterator<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
+        if self.1.is_some() {
+            return self.1.take();
+        }
         if self.0.peek().is_none() {
             return Some(Token::Eof);
         }
@@ -122,7 +150,7 @@ impl<'a> Iterator for TokenIterator<'a> {
             ',' => Token::Comma,
             // U+2215 ∕ DIVISION SLASH
             // Used by rink-web to render these tight fractions.
-            '|' | '\u{2215}' => Token::Pipe,
+            '|' | '\u{2044}' | '\u{2215}' => Token::Pipe,
             ':' => Token::Colon,
             '→' => Token::DashArrow,
             '<' if self.0.peek().cloned() == Some('<') => {
@@ -141,6 +169,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                     Token::Asterisk
                 }
             }
+            '⋅' | '×' => Token::Asterisk,
             '-' => match self.0.peek().cloned() {
                 Some('>') => {
                     self.0.next();
@@ -149,6 +178,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                 _ => Token::Minus,
             },
             '\u{2212}' => Token::Minus,
+            '÷' => Token::Slash,
             '/' => match self.0.peek() {
                 Some(&'/') => loop {
                     match self.0.next() {
@@ -315,6 +345,28 @@ impl<'a> Iterator for TokenIterator<'a> {
                     exp = Some(buf)
                 }
                 Token::Decimal(integer, frac, exp)
+            }
+            x @ '⁰'
+            | x @ '¹'
+            | x @ '²'
+            | x @ '³'
+            | x @ '⁴'
+            | x @ '⁵'
+            | x @ '⁶'
+            | x @ '⁷'
+            | x @ '⁸'
+            | x @ '⁹' => {
+                let mut integer = String::new();
+                integer.push(digit_from_superscript(x).unwrap());
+                while let Some(c) = self.0.peek().cloned() {
+                    if is_superscript(c) {
+                        integer.push(digit_from_superscript(self.0.next().unwrap()).unwrap());
+                    } else {
+                        break;
+                    }
+                }
+                self.1 = Some(Token::Decimal(integer, None, None));
+                Token::Caret
             }
             '\\' => match self.0.next() {
                 Some('u') => {
@@ -960,6 +1012,25 @@ mod test {
     #[test]
     fn sub_crash_regression() {
         assert_eq!(parse("-"), "-<error: Expected term, got eof>");
+    }
+
+    #[test]
+    fn multiplication() {
+        assert_eq!(parse("a⋅b"), parse("a*b"));
+        assert_eq!(parse("a×b"), parse("a*b"));
+    }
+
+    #[test]
+    fn division() {
+        assert_eq!(parse("2|3"), parse("2/3"));
+        assert_eq!(parse("2∕3"), parse("2/3"));
+        assert_eq!(parse("2÷3"), parse("2/3"));
+        assert_eq!(parse("2⁄3"), parse("2/3"));
+    }
+
+    #[test]
+    fn exponents() {
+        assert_eq!(parse("2¹³⁶²⁷⁹⁸⁴¹−1"), parse("2^136279841−1"));
     }
 
     #[test]
