@@ -500,7 +500,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                 let mut prev = x;
                 buf.push(x);
                 while let Some(c) = self.0.peek().cloned() {
-                    if c.is_digit(10) && is_currency(prev) {
+                    if is_superscript(c) || (c.is_digit(10) && is_currency(prev)) {
                         break;
                     } else if c.is_alphanumeric() || c == '_' || c == '$' {
                         prev = self.0.next().unwrap();
@@ -1031,6 +1031,10 @@ mod test {
     #[test]
     fn exponents() {
         assert_eq!(parse("2¹³⁶²⁷⁹⁸⁴¹−1"), parse("2^136279841−1"));
+        assert_eq!(parse("e³"), parse("e^3"));
+        assert_eq!(parse("1m/s²"), parse("1m/s^2"));
+        assert_eq!(parse("1kg*m²/s²"), parse("1kg*m^2/s^2"));
+        assert_eq!(parse("1V/m²"), parse("1V/m^2"));
     }
 
     #[test]
