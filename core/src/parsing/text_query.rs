@@ -14,6 +14,7 @@ pub enum Token {
     Comment(usize),
     Ident(String),
     Decimal(String, Option<String>, Option<String>),
+    Exponent(String),
     Hex(String),
     Oct(String),
     Bin(String),
@@ -49,6 +50,7 @@ fn describe(token: &Token) -> String {
         Token::Newline | Token::Comment(_) => "\\n".to_owned(),
         Token::Ident(_) => "ident".to_owned(),
         Token::Decimal(_, _, _) => "number".to_owned(),
+        Token::Exponent(_) => "exponent".to_owned(),
         Token::Hex(_) => "hex".to_owned(),
         Token::Oct(_) => "octal".to_owned(),
         Token::Bin(_) => "binary".to_owned(),
@@ -102,6 +104,23 @@ fn is_currency(ch: char) -> bool {
     }
 }
 
+fn digit_from_superscript(sup: char) -> Option<char> {
+    // From the Unicode "Superscripts and Subscripts" block, U+2070 to U+209F
+    match sup {
+        '⁰' => Some('0'),
+        '¹' => Some('1'),
+        '²' => Some('2'),
+        '³' => Some('3'),
+        '⁴' => Some('4'),
+        '⁵' => Some('5'),
+        '⁶' => Some('6'),
+        '⁷' => Some('7'),
+        '⁸' => Some('8'),
+        '⁹' => Some('9'),
+        _ => None,
+    }
+}
+
 impl<'a> Iterator for TokenIterator<'a> {
     type Item = Token;
 
@@ -120,9 +139,9 @@ impl<'a> Iterator for TokenIterator<'a> {
             '=' => Token::Equals,
             '^' => Token::Caret,
             ',' => Token::Comma,
-            // U+2215 ∕ DIVISION SLASH
-            // Used by rink-web to render these tight fractions.
-            '|' | '\u{2215}' => Token::Pipe,
+            // U+2044 fraction slash '⁄'
+            // U+2215 division slash '∕'
+            '|' | '\u{2044}' | '\u{2215}' => Token::Pipe,
             ':' => Token::Colon,
             '→' => Token::DashArrow,
             '<' if self.0.peek().cloned() == Some('<') => {
@@ -141,6 +160,9 @@ impl<'a> Iterator for TokenIterator<'a> {
                     Token::Asterisk
                 }
             }
+            // U+22C5 dot operator '⋅'
+            // U+00D7 multiplication sign '×'
+            '⋅' | '×' => Token::Asterisk,
             '-' => match self.0.peek().cloned() {
                 Some('>') => {
                     self.0.next();
@@ -148,7 +170,10 @@ impl<'a> Iterator for TokenIterator<'a> {
                 }
                 _ => Token::Minus,
             },
+            // U+2212 minus sign '−'
             '\u{2212}' => Token::Minus,
+            // U+00F7 division sign '÷'
+            '÷' => Token::Slash,
             '/' => match self.0.peek() {
                 Some(&'/') => loop {
                     match self.0.next() {
@@ -301,6 +326,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                     while let Some(c) = self.0.peek().cloned() {
                         match c {
                             '0'..='9' => buf.push(self.0.next().unwrap()),
+                            // U+2009 thin space ' '
                             '\u{2009}' | '_' => {
                                 self.0.next();
                             }
@@ -315,6 +341,19 @@ impl<'a> Iterator for TokenIterator<'a> {
                     exp = Some(buf)
                 }
                 Token::Decimal(integer, frac, exp)
+            }
+            x if digit_from_superscript(x).is_some() => {
+                let mut integer = String::new();
+                integer.push(digit_from_superscript(x).unwrap());
+                while let Some(c) = self.0.peek().cloned() {
+                    if let Some(digit) = digit_from_superscript(c) {
+                        self.0.next();
+                        integer.push(digit);
+                    } else {
+                        break;
+                    }
+                }
+                Token::Exponent(integer)
             }
             '\\' => match self.0.next() {
                 Some('u') => {
@@ -448,7 +487,11 @@ impl<'a> Iterator for TokenIterator<'a> {
                 let mut prev = x;
                 buf.push(x);
                 while let Some(c) = self.0.peek().cloned() {
-                    if c.is_digit(10) && is_currency(prev) {
+                    if digit_from_superscript(c).is_some() {
+                        // split x² into Ident(x) + Exponent(2)
+                        break;
+                    } else if c.is_digit(10) && is_currency(prev) {
+                        // split $10 into Ident($) + Decimal(10)
                         break;
                     } else if c.is_alphanumeric() || c == '_' || c == '$' {
                         prev = self.0.next().unwrap();
@@ -569,7 +612,7 @@ fn parse_term(iter: &mut Iter<'_>) -> Expr {
             }
         }
         Token::Quote(string) => Expr::Quote { string },
-        Token::Decimal(num, frac, exp) => crate::types::Number::from_parts(
+        Token::Decimal(num, frac, exp) => Numeric::from_parts(
             &*num,
             frac.as_ref().map(|x| &**x),
             exp.as_ref().map(|x| &**x),
@@ -615,6 +658,12 @@ fn parse_pow(iter: &mut Iter<'_>) -> Expr {
             iter.next();
             let right = parse_pow(iter);
             Expr::new_pow(left, right)
+        }
+        Token::Exponent(ref exp_str) => {
+            let res = Numeric::from_parts(&exp_str, None, None);
+            let exp = res.map(Expr::new_const).unwrap_or_else(Expr::new_error);
+            iter.next();
+            Expr::new_pow(left, exp)
         }
         _ => left,
     }
@@ -960,6 +1009,31 @@ mod test {
     #[test]
     fn sub_crash_regression() {
         assert_eq!(parse("-"), "-<error: Expected term, got eof>");
+    }
+
+    #[test]
+    fn multiplication() {
+        assert_eq!(parse("a⋅b"), parse("a*b"));
+        assert_eq!(parse("a×b"), parse("a*b"));
+    }
+
+    #[test]
+    fn division() {
+        assert_eq!(parse("2|3"), parse("2/3"));
+        assert_eq!(parse("2∕3"), parse("2/3"));
+        assert_eq!(parse("2÷3"), parse("2/3"));
+        assert_eq!(parse("2⁄3"), parse("2/3"));
+    }
+
+    #[test]
+    fn exponents() {
+        assert_eq!(parse("2¹³⁶²⁷⁹⁸⁴¹−1"), parse("2^136279841−1"));
+        assert_eq!(parse("e³"), parse("e^3"));
+        assert_eq!(parse("1m/s²"), parse("1m/s^2"));
+        assert_eq!(parse("1kg*m²/s²"), parse("1kg*m^2/s^2"));
+        assert_eq!(parse("1V/m²"), parse("1V/m^2"));
+        assert_eq!(parse("x¹²³⁴⁵⁶⁷⁸⁹⁰"), parse("x^1234567890"));
+        assert_eq!(parse("¹"), "<error: Expected term, got exponent>");
     }
 
     #[test]
