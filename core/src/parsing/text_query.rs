@@ -105,6 +105,7 @@ fn is_currency(ch: char) -> bool {
 }
 
 fn digit_from_superscript(sup: char) -> Option<char> {
+    // From the Unicode "Superscripts and Subscripts" block, U+2070 to U+209F
     match sup {
         '⁰' => Some('0'),
         '¹' => Some('1'),
@@ -138,8 +139,8 @@ impl<'a> Iterator for TokenIterator<'a> {
             '=' => Token::Equals,
             '^' => Token::Caret,
             ',' => Token::Comma,
-            // U+2215 ∕ DIVISION SLASH
-            // Used by rink-web to render these tight fractions.
+            // U+2044 fraction slash '⁄'
+            // U+2215 division slash '∕'
             '|' | '\u{2044}' | '\u{2215}' => Token::Pipe,
             ':' => Token::Colon,
             '→' => Token::DashArrow,
@@ -159,6 +160,8 @@ impl<'a> Iterator for TokenIterator<'a> {
                     Token::Asterisk
                 }
             }
+            // U+22C5 dot operator '⋅'
+            // U+00D7 multiplication sign '×'
             '⋅' | '×' => Token::Asterisk,
             '-' => match self.0.peek().cloned() {
                 Some('>') => {
@@ -167,7 +170,9 @@ impl<'a> Iterator for TokenIterator<'a> {
                 }
                 _ => Token::Minus,
             },
+            // U+2212 minus sign '−'
             '\u{2212}' => Token::Minus,
+            // U+00F7 division sign '÷'
             '÷' => Token::Slash,
             '/' => match self.0.peek() {
                 Some(&'/') => loop {
@@ -321,6 +326,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                     while let Some(c) = self.0.peek().cloned() {
                         match c {
                             '0'..='9' => buf.push(self.0.next().unwrap()),
+                            // U+2009 thin space ' '
                             '\u{2009}' | '_' => {
                                 self.0.next();
                             }
