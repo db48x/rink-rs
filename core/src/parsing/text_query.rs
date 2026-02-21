@@ -14,6 +14,7 @@ pub enum Token {
     Comment(usize),
     Ident(String),
     Decimal(String, Option<String>, Option<String>),
+    Exponent(String),
     Hex(String),
     Oct(String),
     Bin(String),
@@ -49,6 +50,7 @@ fn describe(token: &Token) -> String {
         Token::Newline | Token::Comment(_) => "\\n".to_owned(),
         Token::Ident(_) => "ident".to_owned(),
         Token::Decimal(_, _, _) => "number".to_owned(),
+        Token::Exponent(_) => "exponent".to_owned(),
         Token::Hex(_) => "hex".to_owned(),
         Token::Oct(_) => "octal".to_owned(),
         Token::Bin(_) => "binary".to_owned(),
@@ -83,11 +85,11 @@ fn describe(token: &Token) -> String {
 // The underlying character iterator plus an optional future token to
 // produce.
 #[derive(Clone)]
-pub struct TokenIterator<'a>(Peekable<Chars<'a>>, Option<Token>);
+pub struct TokenIterator<'a>(Peekable<Chars<'a>>);
 
 impl<'a> TokenIterator<'a> {
     pub fn new(input: &'a str) -> TokenIterator<'a> {
-        TokenIterator(input.chars().peekable(), None)
+        TokenIterator(input.chars().peekable())
     }
 }
 
@@ -100,13 +102,6 @@ fn is_currency(ch: char) -> bool {
         | '₭' | '₮' | '₯' | '₰' | '₱' | '₲' | '₳' | '₴' | '₵' | '₶' | '₷' | '₸' | '₹' | '₺'
         | '₻' | '₼' | '₽' | '₾' | '₿' | '⃀' | '꠸' | '﷼' | '﹩' | '＄' | '￠' | '￡' | '￥'
         | '￦' | '𑿝' | '𑿞' | '𑿟' | '𑿠' | '𞋿' | '𞲰' => true,
-        _ => false,
-    }
-}
-
-fn is_superscript(ch: char) -> bool {
-    match ch {
-        '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹' => true,
         _ => false,
     }
 }
@@ -131,9 +126,6 @@ impl<'a> Iterator for TokenIterator<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Token> {
-        if self.1.is_some() {
-            return self.1.take();
-        }
         if self.0.peek().is_none() {
             return Some(Token::Eof);
         }
@@ -346,27 +338,18 @@ impl<'a> Iterator for TokenIterator<'a> {
                 }
                 Token::Decimal(integer, frac, exp)
             }
-            x @ '⁰'
-            | x @ '¹'
-            | x @ '²'
-            | x @ '³'
-            | x @ '⁴'
-            | x @ '⁵'
-            | x @ '⁶'
-            | x @ '⁷'
-            | x @ '⁸'
-            | x @ '⁹' => {
+            x if digit_from_superscript(x).is_some() => {
                 let mut integer = String::new();
                 integer.push(digit_from_superscript(x).unwrap());
                 while let Some(c) = self.0.peek().cloned() {
-                    if is_superscript(c) {
-                        integer.push(digit_from_superscript(self.0.next().unwrap()).unwrap());
+                    if let Some(digit) = digit_from_superscript(c) {
+                        self.0.next();
+                        integer.push(digit);
                     } else {
                         break;
                     }
                 }
-                self.1 = Some(Token::Decimal(integer, None, None));
-                Token::Caret
+                Token::Exponent(integer)
             }
             '\\' => match self.0.next() {
                 Some('u') => {
@@ -500,7 +483,11 @@ impl<'a> Iterator for TokenIterator<'a> {
                 let mut prev = x;
                 buf.push(x);
                 while let Some(c) = self.0.peek().cloned() {
-                    if is_superscript(c) || (c.is_digit(10) && is_currency(prev)) {
+                    if digit_from_superscript(c).is_some() {
+                        // split x² into Ident(x) + Exponent(2)
+                        break;
+                    } else if c.is_digit(10) && is_currency(prev) {
+                        // split $10 into Ident($) + Decimal(10)
                         break;
                     } else if c.is_alphanumeric() || c == '_' || c == '$' {
                         prev = self.0.next().unwrap();
@@ -667,6 +654,12 @@ fn parse_pow(iter: &mut Iter<'_>) -> Expr {
             iter.next();
             let right = parse_pow(iter);
             Expr::new_pow(left, right)
+        }
+        Token::Exponent(ref exp_str) => {
+            let res = crate::types::Number::from_parts(&exp_str, None, None);
+            let exp = res.map(Expr::new_const).unwrap_or_else(Expr::new_error);
+            iter.next();
+            Expr::new_pow(left, exp)
         }
         _ => left,
     }
