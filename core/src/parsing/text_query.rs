@@ -82,8 +82,6 @@ fn describe(token: &Token) -> String {
     }
 }
 
-// The underlying character iterator plus an optional future token to
-// produce.
 #[derive(Clone)]
 pub struct TokenIterator<'a>(Peekable<Chars<'a>>);
 
