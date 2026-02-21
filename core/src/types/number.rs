@@ -6,7 +6,7 @@ use super::{BaseUnit, Dimensionality};
 use crate::loader::Context;
 use crate::output::{Digits, NumberParts};
 use crate::runtime::Show;
-use crate::types::{BigInt, BigRat, Numeric};
+use crate::types::{BigInt, Numeric};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -54,40 +54,6 @@ impl Number {
     pub fn new_unit(num: Numeric, unit: BaseUnit) -> Number {
         let unit = Dimensionality::base_unit(unit);
         Number { value: num, unit }
-    }
-
-    pub fn from_parts(
-        integer: &str,
-        frac: Option<&str>,
-        exp: Option<&str>,
-    ) -> Result<Numeric, String> {
-        use std::str::FromStr;
-
-        let num = BigInt::from_str_radix(integer, 10).unwrap();
-        let frac = if let Some(frac) = frac {
-            let frac_digits = frac.len();
-            let frac = BigInt::from_str_radix(frac, 10).unwrap();
-            BigRat::ratio(&frac, &BigInt::from(10u64).pow(frac_digits as u32))
-        } else {
-            BigRat::zero()
-        };
-        let exp = if let Some(exp) = exp {
-            let exp: i32 = match FromStr::from_str(exp) {
-                Ok(exp) => exp,
-                // presumably because it is too large
-                Err(e) => return Err(format!("Failed to parse exponent: {}", e)),
-            };
-            let res = BigInt::from(10u64).pow(exp.abs() as u32);
-            if exp < 0 {
-                BigRat::ratio(&BigInt::one(), &res)
-            } else {
-                BigRat::ratio(&res, &BigInt::one())
-            }
-        } else {
-            BigRat::one()
-        };
-        let num = &BigRat::ratio(&num, &BigInt::one()) + &frac;
-        Ok(Numeric::Rational(&num * &exp))
     }
 
     /// Computes the reciprocal (1/x) of the value.

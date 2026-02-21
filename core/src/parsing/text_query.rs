@@ -608,7 +608,7 @@ fn parse_term(iter: &mut Iter<'_>) -> Expr {
             }
         }
         Token::Quote(string) => Expr::Quote { string },
-        Token::Decimal(num, frac, exp) => crate::types::Number::from_parts(
+        Token::Decimal(num, frac, exp) => Numeric::from_parts(
             &*num,
             frac.as_ref().map(|x| &**x),
             exp.as_ref().map(|x| &**x),
@@ -656,7 +656,7 @@ fn parse_pow(iter: &mut Iter<'_>) -> Expr {
             Expr::new_pow(left, right)
         }
         Token::Exponent(ref exp_str) => {
-            let res = crate::types::Number::from_parts(&exp_str, None, None);
+            let res = Numeric::from_parts(&exp_str, None, None);
             let exp = res.map(Expr::new_const).unwrap_or_else(Expr::new_error);
             iter.next();
             Expr::new_pow(left, exp)
@@ -1028,6 +1028,8 @@ mod test {
         assert_eq!(parse("1m/s²"), parse("1m/s^2"));
         assert_eq!(parse("1kg*m²/s²"), parse("1kg*m^2/s^2"));
         assert_eq!(parse("1V/m²"), parse("1V/m^2"));
+        assert_eq!(parse("x¹²³⁴⁵⁶⁷⁸⁹⁰"), parse("x^1234567890"));
+        assert_eq!(parse("¹"), "<error: Expected term, got exponent>");
     }
 
     #[test]
