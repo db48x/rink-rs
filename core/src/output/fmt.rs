@@ -117,6 +117,16 @@ impl<'a> Span<'a> {
         Span::new(text, FmtToken::Link)
     }
 
+    // Creates a new span with FmtToken::Keyword
+    pub fn keyword(text: impl Into<Cow<'a, str>>) -> Span<'a> {
+        Span::new(text, FmtToken::Keyword)
+    }
+
+    // Creates a new span with FmtToken::TimeZone
+    pub fn timezone(text: impl Into<Cow<'a, str>>) -> Span<'a> {
+        Span::new(text, FmtToken::TimeZone)
+    }
+
     pub fn is_ws(&self) -> bool {
         if let Span::Content { text, .. } = self {
             text.ends_with(" ")
@@ -142,6 +152,7 @@ impl<'a> fmt::Debug for Span<'a> {
 /// contents.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum FmtToken {
     /// Indicator text that isn't based on user input.
     /// Generally displayed without any formatting.
@@ -184,6 +195,32 @@ pub enum FmtToken {
     /// Intended to be made clickable.
     /// Generally formatted like `http://example.com`.
     Link,
+    /// Reserved words in Rink's query language
+    Keyword,
+    /// Timezone conversions in syntax highlighted queries
+    TimeZone,
+}
+
+impl FmtToken {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FmtToken::Plain => "plain",
+            FmtToken::Error => "error",
+            FmtToken::Unit => "unit",
+            FmtToken::Quantity => "quantity",
+            FmtToken::Number => "number",
+            FmtToken::UserInput => "user_input",
+            FmtToken::ListBegin => "list_begin",
+            FmtToken::ListSep => "list_sep",
+            FmtToken::DocString => "doc_string",
+            FmtToken::Pow => "pow",
+            FmtToken::PropName => "prop_name",
+            FmtToken::DateTime => "date_time",
+            FmtToken::Link => "link",
+            FmtToken::Keyword => "keyword",
+            FmtToken::TimeZone => "time_zone",
+        }
+    }
 }
 
 pub(crate) fn write_spans_string(out: &mut String, spans: &[Span]) {

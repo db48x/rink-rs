@@ -1003,7 +1003,7 @@ mod test {
 
     #[test]
     fn add_assoc() {
-        assert_eq!(parse("a + b - c + d - e"), "(((a + b) - c) + d) - e");
+        assert_eq!(parse("a + b - c + d - e"), "((a + b) - c + d) - e");
     }
 
     #[test]
@@ -1040,9 +1040,9 @@ mod test {
     fn mul_assoc() {
         assert_eq!(
             parse("a b * c / d / e f * g h"),
-            "(((a b) c / d) / e f) (g h)"
+            "((((a b) * c) / d) / e f) * (g h)"
         );
-        assert_eq!(parse("a|b c / g e|f"), "(a / b) c / g (e / f)");
+        assert_eq!(parse("a|b c / g e|f"), "((a / b) * c) / (g * (e / f))");
         assert_eq!(parse("a / b / c"), "(a / b) / c");
     }
 
@@ -1060,9 +1060,9 @@ mod test {
     #[test]
     fn suffix_prec() {
         assert_eq!(parse("a b °C + x y °F"), "a b °C + x y °F");
-        assert_eq!(parse("a b °C c"), "(a b °C) c");
+        assert_eq!(parse("a b °C c"), "(a b °C) * c");
         assert_eq!(parse("a °C / x"), "a °C / x");
-        assert_eq!(parse("a °C * x"), "(a °C) x");
+        assert_eq!(parse("a °C * x"), "(a °C) * x");
     }
 
     #[test]
@@ -1093,9 +1093,9 @@ mod test {
 
     #[test]
     fn test_prefixed_currency() {
-        assert_eq!(parse("$2.5"), "$ 2.5");
-        assert_eq!(parse("£3"), "£ 3");
-        assert_eq!(parse("$.01"), "$ 0.01");
+        assert_eq!(parse("$2.5"), "$ * 2.5");
+        assert_eq!(parse("£3"), "£ * 3");
+        assert_eq!(parse("$.01"), "$ * 0.01");
         assert_eq!(parse("$asdf"), "$asdf");
         assert_eq!(parse("C$"), "C$");
     }
